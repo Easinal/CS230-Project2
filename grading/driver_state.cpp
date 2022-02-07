@@ -74,39 +74,6 @@ void clip_triangle(driver_state& state, const data_geometry& v0,
     {
         rasterize_triangle(state, v0, v1, v2);
         return;
-    }else{
-        bool flag = 0;
-        int plane = 0;
-        switch(face){
-            case 0:
-                if(v0.gl_Position[plane]>v0.gl_Position[3])flag+=1;
-                if(v1.gl_Position[plane]>v1.gl_Position[3])flag+=2;
-                if(v2.gl_Position[plane]>v2.gl_Position[3])flag+=4;
-                break;
-            case 1:
-                if(v0.gl_Position[plane]<-v0.gl_Position[3])flag+=1;
-                if(v1.gl_Position[plane]<-v1.gl_Position[3])flag+=2;
-                if(v2.gl_Position[plane]<-v2.gl_Position[3])flag+=4;
-                break;
-            default:
-                break;
-        }
-        switch(flag){
-            case 0:
-                clip_triangle(state,v0,v1,v2,face+1);
-                break;
-            case 1:
-                data_geometry output1[3];
-                data_geometry output2[3];
-                output1[0].data = v1.data;
-                output1[0].gl_Position = v1.gl_Position;
-                output1[1].data = v2.data;
-                output1[1].gl_Position = v2.gl_Position;
-                break;
-            default:
-                break;
-        }
-
     }
     //std::cout<<"TODO: implement clipping. (The current code passes the triangle through without clipping them.)"<<std::endl;
     clip_triangle(state,v0,v1,v2,face+1);
@@ -126,11 +93,9 @@ void rasterize_triangle(driver_state& state, const data_geometry& v0,
 
     for(int i = 0; i < 3; ++i){
         if(i==1)k=h;
-        else k=w;
         k0[i] = k * (v0.gl_Position[i] / v0.gl_Position[3] +1) - 0.5;
         k1[i] = k * (v1.gl_Position[i] / v1.gl_Position[3] +1) - 0.5;
         k2[i] = k * (v2.gl_Position[i] / v2.gl_Position[3] +1) - 0.5;
-        cout<<i<<" : "<<k0[i]<<" "<<k1[i]<<" "<<k2[i]<<endl;
     }
 
     float x_min = max(min(k0[0],min(k1[0], k2[0])),(float)0);
