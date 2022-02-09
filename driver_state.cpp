@@ -63,6 +63,29 @@ void render(driver_state& state, render_type type)
 }
 
 
+void calculate_new_vertex(driver_state& state, data_geometry& output, const data_geometry& v1, const data_geometry& v2, int pos, int plane, float* data){
+    float smooth_alpha = 0;
+    if (pos==1){
+		smooth_alpha = (v2.gl_Position[3] - v2.gl_Position[plane]) / (v1.gl_Position[plane] - v1.gl_Position[3] + v2.gl_Position[3] - v2.gl_Position[plane]);
+    }
+	else{
+		smooth_alpha = (-v2.gl_Position[3] - v2.gl_Position[plane]) / (v1.gl_Position[plane] + v1.gl_Position[3] - v2.gl_Position[3] - v2.gl_Position[plane]);
+    }
+    output.gl_Position = smooth_alpha * v1.gl_Position + (1 - smooth_alpha) * v2.gl_Position;
+    float noperspective_alpha = smooth_alpha * v1.gl_Position[3] / (smooth_alpha * v2.gl_Position[3] + (1 - smooth_alpha) * v2.gl_Position[3]);
+    for (int i = 0; i < state.floats_per_vertex; i++) {
+        if(state.interp_rules[i]==interp_type::flat){
+            data[i] = v1.data[i];
+        }
+        if(state.interp_rules[i]==interp_type::smooth) {
+			data[i] = smooth_alpha * v1.data[i] + (1 - smooth_alpha) * v2.data[i];
+		}
+		if(state.interp_rules[i]==interp_type::noperspective) {
+            data[i] = noperspective_alpha * v1.data[i] + (1 - noperspective_alpha) * v2.data[i];
+		}
+	}
+	output.data = data;
+}
 // This function clips a triangle (defined by the three vertices in the "in" array).
 // It will be called recursively, once for each clipping face (face=0, 1, ..., 5) to
 // clip against each of the clipping faces in turn.  When face=6, clip_triangle should
@@ -70,46 +93,144 @@ void render(driver_state& state, render_type type)
 void clip_triangle(driver_state& state, const data_geometry& v0,
     const data_geometry& v1, const data_geometry& v2,int face)
 {
+    int flag = 0;
+    int plane = 0;
+    int pos = 1;
+/*
+    rasterize_triangle(state, v0, v1, v2);
+    return;
+*/  
     if(face==6)
     {
         rasterize_triangle(state, v0, v1, v2);
         return;
     }else{
-        bool flag = 0;
-        int plane = 0;
-        switch(face){
-            case 0:
-                if(v0.gl_Position[plane]>v0.gl_Position[3])flag+=1;
-                if(v1.gl_Position[plane]>v1.gl_Position[3])flag+=2;
-                if(v2.gl_Position[plane]>v2.gl_Position[3])flag+=4;
-                break;
-            case 1:
-                if(v0.gl_Position[plane]<-v0.gl_Position[3])flag+=1;
-                if(v1.gl_Position[plane]<-v1.gl_Position[3])flag+=2;
-                if(v2.gl_Position[plane]<-v2.gl_Position[3])flag+=4;
-                break;
-            default:
-                break;
-        }
+        int pos_arr[6]= {1, -1, 1, -1, 1, -1};
+        int plane_arr[6]= {2, 2, 1, 1, 0, 0};
+        pos = pos_arr[face];
+        plane = plane_arr[face];
+        
+        if(pos*v0.gl_Position[plane]>v0.gl_Position[3])flag+=1;
+        if(pos*v1.gl_Position[plane]>v1.gl_Position[3])flag+=2;
+        if(pos*v2.gl_Position[plane]>v2.gl_Position[3])flag+=4;
         switch(flag){
-            case 0:
+            case 0:{
                 clip_triangle(state,v0,v1,v2,face+1);
                 break;
-            case 1:
+            }
+            case 1:{
                 data_geometry output1[3];
                 data_geometry output2[3];
+                float* data1 = new float[MAX_FLOATS_PER_VERTEX];
+                float* data2 = new float[MAX_FLOATS_PER_VERTEX];
+
                 output1[0].data = v1.data;
                 output1[0].gl_Position = v1.gl_Position;
                 output1[1].data = v2.data;
                 output1[1].gl_Position = v2.gl_Position;
+                calculate_new_vertex(state, output1[2], v1, v0, pos, plane, data1);
+                output2[0].data = v2.data;
+                output2[0].gl_Position = v2.gl_Position;
+                output2[2].data = output1[2].data;
+                output2[2].gl_Position = output1[2].gl_Position;
+                calculate_new_vertex(state, output2[1], v2, v0, pos, plane, data2);
+                
+                clip_triangle(state,output1[0],output1[1],output1[2],face+1);
+                clip_triangle(state,output2[0],output2[1],output2[2],face+1);
                 break;
+            }
+            case 2:{
+                data_geometry output1[3];
+                data_geometry output2[3];
+                float* data1 = new float[MAX_FLOATS_PER_VERTEX];
+                float* data2 = new float[MAX_FLOATS_PER_VERTEX];
+
+                output1[0].data = v0.data;
+                output1[0].gl_Position = v0.gl_Position;
+                output1[1].data = v2.data;
+                output1[1].gl_Position = v2.gl_Position;
+                calculate_new_vertex(state, output1[2], v2, v1, pos, plane, data1);
+                output2[0].data = v0.data;
+                output2[0].gl_Position = v0.gl_Position;
+                output2[2].data = output1[2].data;
+                output2[2].gl_Position = output1[2].gl_Position;
+                calculate_new_vertex(state, output2[1], v0, v1, pos, plane, data2);
+                
+                clip_triangle(state,output1[0],output1[1],output1[2],face+1);
+                clip_triangle(state,output2[0],output2[1],output2[2],face+1);
+                break;
+            }
+            case 3:{
+                data_geometry output1[3];
+                float* data1 = new float[MAX_FLOATS_PER_VERTEX];
+                float* data2 = new float[MAX_FLOATS_PER_VERTEX];
+
+                output1[0].data = v2.data;
+                output1[0].gl_Position = v2.gl_Position;
+                calculate_new_vertex(state, output1[1], v2, v1, pos, plane, data1);
+                calculate_new_vertex(state, output1[2], v2, v0, pos, plane, data2);
+                
+                clip_triangle(state,output1[0],output1[1],output1[2],face+1);
+                break;
+            }
+            case 4:{
+                data_geometry output1[3];
+                data_geometry output2[3];
+                float* data1 = new float[MAX_FLOATS_PER_VERTEX];
+                float* data2 = new float[MAX_FLOATS_PER_VERTEX];
+
+                output1[0].data = v0.data;
+                output1[0].gl_Position = v0.gl_Position;
+                output1[1].data = v1.data;
+                output1[1].gl_Position = v1.gl_Position;
+                calculate_new_vertex(state, output1[2], v1, v2, pos, plane, data1);
+                output2[0].data = v0.data;
+                output2[0].gl_Position = v0.gl_Position;
+                output2[2].data = output1[2].data;
+                output2[2].gl_Position = output1[2].gl_Position;
+                calculate_new_vertex(state, output2[1], v0, v2, pos, plane, data2);
+                /*
+                cout<<endl<<"face : "<<face<<" case : "<<flag<<endl<< v0.gl_Position<<endl<<v1.gl_Position<<endl<<v2.gl_Position<<endl;
+                cout<<endl<<"output1 : "<<endl<< output1[0].gl_Position<<endl<<output1[1].gl_Position<<endl<<output1[2].gl_Position<<endl;
+                cout<<endl<<"output2 : "<<endl<< output2[0].gl_Position<<endl<<output2[1].gl_Position<<endl<<output2[2].gl_Position<<endl;
+                */
+                clip_triangle(state,output1[0],output1[1],output1[2],face+1);
+                clip_triangle(state,output2[0],output2[1],output2[2],face+1);
+                break;
+            }
+            case 5:{
+                data_geometry output1[3];
+                float* data1 = new float[MAX_FLOATS_PER_VERTEX];
+                float* data2 = new float[MAX_FLOATS_PER_VERTEX];
+
+                output1[0].data = v1.data;
+                output1[0].gl_Position = v1.gl_Position;
+                calculate_new_vertex(state, output1[1], v1, v0, pos, plane, data1);
+                calculate_new_vertex(state, output1[2], v1, v2, pos, plane, data2);
+                
+                clip_triangle(state,output1[0],output1[1],output1[2],face+1);
+                break;
+            }
+            case 6:{
+                data_geometry output1[3];
+                float* data1 = new float[MAX_FLOATS_PER_VERTEX];
+                float* data2 = new float[MAX_FLOATS_PER_VERTEX];
+
+                output1[0].data = v0.data;
+                output1[0].gl_Position = v0.gl_Position;
+                calculate_new_vertex(state, output1[1], v0, v1, pos, plane, data1);
+                calculate_new_vertex(state, output1[2], v0, v2, pos, plane, data2);
+                
+                clip_triangle(state,output1[0],output1[1],output1[2],face+1);
+                break;
+            }
             default:
                 break;
         }
 
     }
     //std::cout<<"TODO: implement clipping. (The current code passes the triangle through without clipping them.)"<<std::endl;
-    clip_triangle(state,v0,v1,v2,face+1);
+    //clip_triangle(state,v0,v1,v2,face+1);
 }
 
 // Rasterize the triangle defined by the three vertices in the "in" array.  This
@@ -130,7 +251,7 @@ void rasterize_triangle(driver_state& state, const data_geometry& v0,
         k0[i] = k * (v0.gl_Position[i] / v0.gl_Position[3] +1) - 0.5;
         k1[i] = k * (v1.gl_Position[i] / v1.gl_Position[3] +1) - 0.5;
         k2[i] = k * (v2.gl_Position[i] / v2.gl_Position[3] +1) - 0.5;
-        cout<<i<<" : "<<k0[i]<<" "<<k1[i]<<" "<<k2[i]<<endl;
+        //cout<<i<<" : "<<k0[i]<<" "<<k1[i]<<" "<<k2[i]<<endl;
     }
 
     float x_min = max(min(k0[0],min(k1[0], k2[0])),(float)0);
@@ -157,6 +278,15 @@ void rasterize_triangle(driver_state& state, const data_geometry& v0,
                     for(int k = 0; k < state.floats_per_vertex; k++){
                         if(state.interp_rules[k]==interp_type::flat){
                             in.data[k] = v0.data[k];
+                        }
+                        if(state.interp_rules[k]==interp_type::smooth){							
+                            float alpha_p = 0, beta_p = 0, gamma_p = 0, c = 0;
+
+							c = (alpha / v0.gl_Position[3]) + (beta / v1.gl_Position[3]) + (gamma / v2.gl_Position[3]);
+							alpha_p = alpha / (v0.gl_Position[3] * c);
+							beta_p = beta / (v1.gl_Position[3] * c);
+							gamma_p = gamma / (v2.gl_Position[3] * c);
+                            in.data[k] = alpha_p*v0.data[k]+beta_p*v1.data[k]+gamma_p*v2.data[k];
                         }
                         if(state.interp_rules[k]==interp_type::noperspective){
                             in.data[k] = alpha*v0.data[k]+beta*v1.data[k]+gamma*v2.data[k];
