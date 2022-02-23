@@ -135,7 +135,7 @@ void calculate_new_vertex(driver_state& state, data_geometry& output, const data
 		smooth_alpha = (-v2.gl_Position[3] - v2.gl_Position[plane]) / (v1.gl_Position[plane] + v1.gl_Position[3] - v2.gl_Position[3] - v2.gl_Position[plane]);
     }
     output.gl_Position = smooth_alpha * v1.gl_Position + (1 - smooth_alpha) * v2.gl_Position;
-    float noperspective_alpha = smooth_alpha * v1.gl_Position[3] / (smooth_alpha * v2.gl_Position[3] + (1 - smooth_alpha) * v2.gl_Position[3]);
+    float noperspective_alpha = smooth_alpha * v1.gl_Position[3] / (smooth_alpha * v1.gl_Position[3] + (1 - smooth_alpha) * v2.gl_Position[3]);
     for (int i = 0; i < state.floats_per_vertex; i++) {
         if(state.interp_rules[i]==interp_type::flat){
             data[i] = v1.data[i];
@@ -156,7 +156,6 @@ void calculate_new_vertex(driver_state& state, data_geometry& output, const data
 void clip_triangle(driver_state& state, const data_geometry& v0,
     const data_geometry& v1, const data_geometry& v2,int face)
 {
-    int flag = 0;
     int plane = 0;
     int pos = 1;
 /*
@@ -172,7 +171,7 @@ void clip_triangle(driver_state& state, const data_geometry& v0,
         int plane_arr[6]= {2, 2, 1, 1, 0, 0};
         pos = pos_arr[face];
         plane = plane_arr[face];
-        
+        int flag = 0;
         if(pos*v0.gl_Position[plane]>v0.gl_Position[3])flag+=1;
         if(pos*v1.gl_Position[plane]>v1.gl_Position[3])flag+=2;
         if(pos*v2.gl_Position[plane]>v2.gl_Position[3])flag+=4;
@@ -287,7 +286,11 @@ void clip_triangle(driver_state& state, const data_geometry& v0,
                 clip_triangle(state,output1[0],output1[1],output1[2],face+1);
                 break;
             }
+            case 7:{
+                break;
+            }
             default:
+                assert(0);
                 break;
         }
 
@@ -323,42 +326,49 @@ void rasterize_triangle(driver_state& state, const data_geometry& v0,
     float y_max = min(max(k0[1],max(k1[1], k2[1])),(float)state.image_height);
     float area = k0[0]*k1[1]+k1[0]*k2[1]+k2[0]*k0[1]-k0[0]*k2[1]-k1[0]*k0[1]-k2[0]*k1[1];
 
-    for(int j = ceil(y_min); j < y_max; j++){
-        for(int i = ceil(x_min); i < x_max; i++){
+    for(int j = floor(y_min); j <= ceil(y_max); j++){
+        for(int i = floor(x_min); i <= ceil(x_max); i++){
+            float alpha = ((k1[1]-k2[1])*i + (k2[0]-k1[0])*j +k1[0]*k2[1] - k2[0]*k1[1])/area;
             float beta = -((k0[1]-k2[1])*i + (k2[0]-k0[0])*j +k0[0]*k2[1] - k2[0]*k0[1])/area;
             float gamma = ((k0[1]-k1[1])*i + (k1[0]-k0[0])*j +k0[0]*k1[1] - k1[0]*k0[1])/area;
-            float alpha = ((k1[1]-k2[1])*i + (k2[0]-k1[0])*j +k1[0]*k2[1] - k2[0]*k1[1])/area;
             //float alpha = 1 - beta - gamma;
             int pos = i + j * state.image_width;
-
-            if(alpha<1 && alpha>0 && beta<1 && beta>0 && gamma<1 && gamma>0){
-                if(abs(beta+gamma+alpha-1)>=0.01){
+            if(alpha >= 0 && beta >= 0 && gamma >= 0) {
+            // if(alpha<=1 && alpha>=0 && beta<=1 && beta>=0 && gamma<=1 && gamma>=0){
+                /*if(abs(beta+gamma+alpha-1)>=0.01){
                     cout<<abs(beta+gamma+alpha-1)<<endl;
-                }
-                float dep = alpha * k0[2] + beta * k1[2] + gamma * k2[2];
+                }*/
+                float dep = (alpha * k0[2] + beta * k1[2] + gamma * k2[2]);
+				// float dep = (alpha * v0.gl_Position[2] / v0.gl_Position[3]) +(beta * v1.gl_Position[2] / v1.gl_Position[3]) + 
+				//	(gamma * v2.gl_Position[2] / v2.gl_Position[3]);
                 if(dep < state.image_depth[pos]){
                     data_fragment in{data};
                     data_output out;
                     state.image_depth[pos] = dep;			
-                    float alpha_p = alpha, beta_p = beta, gamma_p = gamma, c = 0;
                     for(int k = 0; k < state.floats_per_vertex; k++){
                         if(state.interp_rules[k]==interp_type::flat){
                             in.data[k] = v0.data[k];
-                        }
-                        if(state.interp_rules[k]==interp_type::smooth){				
-							c = (alpha / v0.gl_Position[3]) + (beta / v1.gl_Position[3]) + (gamma / v2.gl_Position[3]);
-							alpha_p = alpha / (v0.gl_Position[3] * c);
-							beta_p = beta / (v1.gl_Position[3] * c);
-							gamma_p = gamma / (v2.gl_Position[3] * c);
+                        } else if(state.interp_rules[k]==interp_type::smooth){				
+							float c = (alpha / v0.gl_Position[3]) + (beta / v1.gl_Position[3]) + (gamma / v2.gl_Position[3]);
+							float alpha_p = alpha / (v0.gl_Position[3] * c);
+							float beta_p = beta / (v1.gl_Position[3] * c);  
+							float gamma_p = gamma / (v2.gl_Position[3] * c);
                             in.data[k] = alpha_p*v0.data[k]+beta_p*v1.data[k]+gamma_p*v2.data[k];
-                        }
-                        if(state.interp_rules[k]==interp_type::noperspective){
-                            in.data[k] = alpha_p*v0.data[k]+beta_p*v1.data[k]+gamma_p*v2.data[k];
+                        } else if(state.interp_rules[k]==interp_type::noperspective){
+                            in.data[k] = alpha*v0.data[k]+beta*v1.data[k]+gamma*v2.data[k];
+                        } else {
+                            assert(0);
                         }
                     }
                     state.fragment_shader(in, out, state.uniform_data);
                     state.image_color[pos]=
                         make_pixel(out.output_color[0]*255, out.output_color[1]*255, out.output_color[2]*255);
+
+
+
+
+
+
                 }
             }
         }
