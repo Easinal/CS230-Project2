@@ -3,4 +3,5 @@
 *.png
 *.txt
 *.dblite
-/.vscode
+.vscode/
+grading/
